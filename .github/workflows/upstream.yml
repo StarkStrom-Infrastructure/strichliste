@@ -1,0 +1,36 @@
+# Weekly: if strichliste-backend has a newer release than upstream.env, open a pull request that moves to it.
+name: upstream
+
+on:
+  schedule:
+    - cron: "23 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Compare with the latest release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          . ./upstream.env
+          latest=$(gh release view -R strichliste/strichliste-backend --json tagName -q .tagName)
+          [ "$latest" = "$STRICHLISTE_VERSION" ] && { echo "up to date: $latest"; exit 0; }
+          branch="upstream/$latest"
+          git ls-remote --exit-code --heads origin "$branch" >/dev/null && { echo "PR branch exists: $branch"; exit 0; }
+          commit=$(gh api "repos/strichliste/strichliste-backend/commits/$latest" -q .sha)
+          sed -i "s/^STRICHLISTE_VERSION=.*/STRICHLISTE_VERSION=$latest/; s/^STRICHLISTE_COMMIT=.*/STRICHLISTE_COMMIT=$commit/" upstream.env
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git commit -am "strichliste-backend $latest"
+          git push origin "$branch"
+          gh pr create --title "strichliste-backend $latest" \
+            --body "Upstream release: https://github.com/strichliste/strichliste-backend/releases/tag/$latest (commit $commit). Read the release notes for migrations and config changes before merging."
